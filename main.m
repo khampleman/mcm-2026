@@ -2,38 +2,95 @@ clc;
 clear;
 close all;
 
-% DEFINE CONSTANTS
-h = 3.9; % heat transfer coefficient [W/(m²K)]
-c_p = 1.006 * 1000; % Specific Heat at Constant Pressure [J/kg·K]
-rho = 1.225; % Density of air [kg/m³]
+% DEFINE MATERIAL PARAMETERS
+concrete.R_val = 0.1; % (Thermal Resistance [m^2K/W])
+concrete.C_val = 20000; 
+air.h_val = 3.9; 
 
 % DEFINE SIMULATION CONDITIONS
-T_outside = 35 + 273.15; % temperature of outside (assume reservoir) [K]
-L = 1; % Side length of box [m]
-T0 = 20 + 273.15; % initial temperature inside [K]
+L = 60; W = 24; H = 6.6; 
+V = L*W*H; 
+A_s = 2 * (L * H + W * H) + L * W; 
 
-V = L^3; % Volume of box [m³]
-A_s = 6 * L^2; % Surface area of the box [m²]
+% DEFINE CAPACITORS
+capacitors = [
+  1, 1.225 * V * 1006;         % Indoor Air
+  2, (concrete.C_val/2) * A_s; % Interior Wall Mass
+  3, (concrete.C_val/2) * A_s; % Exterior Wall Mass
+  4, inf;                      % Outside Air
+];
+n = size(capacitors, 1);
+
+% DEFINE RESISTORS
+% [Node 1, Node 2, Resistance Value]
+resistors = [
+  % Convection Resistance = 1 / (h * Area)
+  4, 3, 1 / (air.h_val * A_s); 
+  
+  % Conduction Resistance = R_value / Area
+  3, 2, concrete.R_val / A_s; 
+  
+  % Convection Resistance = 1 / (h * Area)
+  2, 1, 1 / (air.h_val * A_s) 
+];
 
 % DEFINE TIME PARAMETERS
-dt = 0.01; % time step
-t_end = 120; % end time
-time = 0:dt:t_end; % time vector
+dt = 10;
+t_end = 10 * 3600;
+time = 0:dt:t_end; 
+
+% CREATE R MATRIX
+R = zeros(n, n);
+for i = 1:size(resistors,1)
+    node1 = resistors(i, 1);
+    node2 = resistors(i, 2);
+    r_val = resistors(i, 3);
+    
+    % Make Matrix Symmetric (Heat flows both ways)
+    R(node1, node2) = r_val;
+    R(node2, node1) = r_val; 
+end
+
+% CREATE C VECTOR
+C = zeros(1, n);
+for i = 1:n
+    id = capacitors(i, 1);
+    C(id) = capacitors(i, 2);
+end
 
 % SIMULATION
-T = zeros(size(time)); % initialize temperature array
-T(1) = T0; % set initial temperature
-for i = 2:length(time)
+results = zeros(size(time)); 
+T = [20, 20, 20, 35]; 
+T = T + 273.15; % Convert to Kelvin
+results(1) = T(1);
 
-    deltaT = -h*A_s*(T(i-1) - T_outside)*dt/(rho*V*c_p);
-
-    T(i) = T(i-1) + deltaT; % update temperature
+for z = 2:length(time)
+    dT = zeros(1, n);
+    
+    for k = 1:n
+        
+        % Calculate NET flow using neighbor nodes
+        if C(k) ~= inf % Don't calculate for infinite reservoirs
+            for i = 1:n
+                if R(i, k) ~= 0 
+                    % Ohm's Law for Heat: (T_neighbor - T_node) / R
+                    flow = (T(i) - T(k)) / R(i, k);
+                    dT(k) = dT(k) + flow;
+                end
+            end
+            % Update Temp Change: (Net Heat Flow * dt) / Capacitance
+            dT(k) = dT(k) * dt / C(k);
+        end
+    end
+    
+    T = T + dT;
+    results(z) = T(1);
 end
 
 % PLOT RESULTS
 figure;
-plot(time, T-273.15);
-xlabel('Time (s)');
+plot(time/3600, results-273.15, 'LineWidth', 2);
+xlabel('Time (hours)');
 ylabel('Temperature (°C)');
-title('Temperature Change Over Time');
+title('Indoor Temperature Response');
 grid on;
