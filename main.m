@@ -3,14 +3,17 @@ clear;
 close all;
 
 % DEFINE MATERIAL PARAMETERS
+
+% !!!!!!! THESE VALUES NEED TO BE MORE PRECISELY CHOSEN !!!!!!!!!!!
+
 concrete.R_val = 0.1; % (Thermal Resistance [m^2K/W])
 concrete.C_val = 20000; 
 air.h_val = 3.9; 
 
 % DEFINE SIMULATION CONDITIONS
-L = 60; W = 24; H = 6.6; 
+L = 60; W = 24; H = 6.6; % building dimensions
 V = L*W*H; 
-A_s = 2 * (L * H + W * H) + L * W; 
+A_s = 2 * (L * H + W * H) + L * W; % neglect floor
 
 % DEFINE CAPACITORS
 capacitors = [
