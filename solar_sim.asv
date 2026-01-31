@@ -1,0 +1,83 @@
+clc;
+clear;
+close all;
+
+% SIMULATION SETUP
+
+% Window Parameters
+phi = 180; % [deg] Angle of window East of North
+
+% Define location (Austin, TX)
+location.longitude = -97.743; 
+location.latitude = 30.2672; 
+location.altitude = 185; % [m]
+
+
+% Initial Time
+currentTime = datetime(2026, 1, 30, 0, 0, 0);
+
+% Define Time Parameters
+dt = 60;
+t_end = 24 * 3600;
+time = 0:dt:t_end; 
+
+% SIMULATION
+Q_solar_vals = zeros(length(time), 1);
+sunAltitudes = zeros(length(time), 1);
+sunAzimuths = zeros(length(time), 1);
+DNIValues = zeros(length(time), 1);
+for z = 1:length(time)
+    % Increment time
+    currentTime = currentTime + seconds(dt);
+
+    dv = datevec(currentTime);
+    
+    % Create the time struct
+    timeStruct.year = dv(1);
+    timeStruct.month = dv(2);
+    timeStruct.day = dv(3);
+    timeStruct.hour = dv(4);
+    timeStruct.min = dv(5);
+    timeStruct.sec = dv(6);
+    timeStruct.UTC = -6; % Central Time
+    
+    % Get sun position
+    sun = sun_position(timeStruct, location);
+    sun.altitude = 90 - sun.zenith;
+
+    % Calculate direct normal irradiance (W/m^2 received from sun)
+    DNI = 0;
+    if sun.altitude > 0 % Only check when sun is above horizon
+        AM = 1/cos(deg2rad(sun.zenith));
+        DNI = 1353*(0.7^AM)^0.678;
+    end
+
+    % Calculate Q_solar
+    cos_theta = cos(deg2rad(altitude))*cos(deg2rad(sun.azimuth-phi));
+    Q_solar = DNI*A_w*cos_theta;
+    
+
+    % Store data
+    sunAltitudes(z) = sun.altitude;
+    sunAzimuths(z) = sun.azimuth;
+    DNIValues(z) = DNI; 
+    Q_solar_vals(z) = Q_solar;
+end
+
+% Plot altitude vs azimuth
+figure;
+scatter(sunAzimuths, sunAltitudes, '.');
+xlabel('Sun Azimuth (degrees)');
+ylabel('Sun Altitude (degrees)');
+title('Sun Position Over Time');
+grid on;
+
+% Plot direct normal irradiance values
+figure;
+plot(time/3600, DNIValues);
+xlabel('Time (hours)');
+ylabel('Direct Normal Irradiance (W/m^2)');
+title('Direct Normal Irradiance Over Time');
+grid on;
+
+%

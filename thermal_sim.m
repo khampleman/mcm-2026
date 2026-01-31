@@ -3,34 +3,40 @@ clear;
 close all;
 
 % DEFINE MATERIAL PARAMETERS
+
+% !!!!!!! THESE VALUES NEED TO BE MORE PRECISELY CHOSEN !!!!!!!!!!!
+% These are random values I got from Gemini, we will choose these from
+% research sources
+
 concrete.R_val = 0.1; % (Thermal Resistance [m^2K/W])
 concrete.C_val = 20000; 
 air.h_val = 3.9; 
 
 % DEFINE SIMULATION CONDITIONS
-L = 60; W = 24; H = 6.6; 
+L = 60; W = 24; H = 6.6; % building dimensions
 V = L*W*H; 
-A_s = 2 * (L * H + W * H) + L * W; 
+A_s = 2 * (L * H + W * H) + L * W; % neglect floor
 
 % DEFINE CAPACITORS
+% [ID, Capacitance]
 capacitors = [
-  1, 1.225 * V * 1006;         % Indoor Air
+  1, 1.225 * V * 1006;         % Indoor Air (rho * V * c_p)
   2, (concrete.C_val/2) * A_s; % Interior Wall Mass
   3, (concrete.C_val/2) * A_s; % Exterior Wall Mass
-  4, inf;                      % Outside Air
+  4, inf;                      % Outside Air (infinite capacitance means heat reservoir)
 ];
 n = size(capacitors, 1);
 
 % DEFINE RESISTORS
 % [Node 1, Node 2, Resistance Value]
 resistors = [
-  % Convection Resistance = 1 / (h * Area)
+  % Outside -> Exterior Wall: Convection Resistance = 1 / (h * Area)
   4, 3, 1 / (air.h_val * A_s); 
   
   % Conduction Resistance = R_value / Area
   3, 2, concrete.R_val / A_s; 
   
-  % Convection Resistance = 1 / (h * Area)
+  % Interior Wall -> Inside: Convection Resistance = 1 / (h * Area)
   2, 1, 1 / (air.h_val * A_s) 
 ];
 
@@ -51,6 +57,8 @@ for i = 1:size(resistors,1)
     R(node2, node1) = r_val; 
 end
 
+disp(R)
+
 % CREATE C VECTOR
 C = zeros(1, n);
 for i = 1:n
@@ -68,15 +76,12 @@ for z = 2:length(time)
     dT = zeros(1, n);
     
     for k = 1:n
-        Qin = 0; 
-        Qout = 0;
         
         % Calculate NET flow using neighbor nodes
         if C(k) ~= inf % Don't calculate for infinite reservoirs
             for i = 1:n
-                if R(i, k) ~= 0 
+                if R(i, k) ~= 0 % Check if there is a resistor there
                     % Ohm's Law for Heat: (T_neighbor - T_node) / R
-                    % This handles both In and Out automatically based on sign
                     flow = (T(i) - T(k)) / R(i, k);
                     dT(k) = dT(k) + flow;
                 end
