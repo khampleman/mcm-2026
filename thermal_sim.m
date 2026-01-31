@@ -11,22 +11,33 @@ close all;
 concrete.R_val = 0.1; % (Thermal Resistance [m^2K/W])
 concrete.C_val = 20000; 
 air.h_val = 3.9; 
+window.C_val = 0; % CHANGE THIS
+window.U_val = 2.8;
 
 % DEFINE SIMULATION CONDITIONS
 L = 60; W = 24; H = 6.6; % building dimensions
 V = L*W*H; 
-A_s = 2 * (L * H + W * H) + L * W; % neglect floor
+A_s = 2 * (L * H + W * H) + L * W; % Surface area of walls (neglect floor)
+
+A_w = 0.45 * A_s; % Surface area of window
+A_s = 0.55 * A_s;
+phi = 180; % Direction of window east of north [deg]
+
+% SIMULATION LOCATION (Austin TX)
+location.longitude = -97.743; %[deg]
+location.latitude = 30.2672; %[deg]
+location.altitude = 185; % [m]
 
 % DEFINE CAPACITORS
 % [ID, Receives Solar?(0 or 1), Capacitance]
-capacitors = [
+nodes = [
   1, 0, 1.225 * V * 1006;         % Indoor Air (rho * V * c_p)
   2, 1, (concrete.C_val/2) * A_s; % Interior Wall Mass
   3, 0, (concrete.C_val/2) * A_s; % Exterior Wall Mass
   4, 0, inf;                      % Outside Air (infinite capacitance means heat reservoir)
   5, 0, window.C_val * A_w;       % Window
 ];
-n = size(capacitors, 1);
+n = size(nodes, 1);
 
 % DEFINE RESISTORS
 % [Node 1, Node 2, Resistance Value]
@@ -38,18 +49,20 @@ resistors = [
   3, 2, concrete.R_val / A_s; 
   
   % Interior Wall -> Inside: Convection Resistance = 1 / (h * Area)
-  2, 1, 1 / (air.h_val * A_s);
+  2, 1, 1 / (air.h_val * A_s)
 
   % Outside -> Window: Convection Resistance = 1 / (h * Area)
-  4, 5, 1 / (air.h_val * A_w);
+  %4, 5, 1 / (air.h_val * A_w);
 
   % Window -> Inside: Convection Resistance = 1 / (h * Area)
-  5, 1, 1 / (air.h_val * A_w);
+  %5, 1, 1 / (air.h_val * A_w);
 ];
 
 % DEFINE TIME PARAMETERS
+currentTime = datetime(2026, 1, 30, 0, 0, 0);
+timeZone = -6; % UTC-6 is Central Time
 dt = 10;
-t_end = 10 * 3600;
+t_end = 24 * 3600;
 time = 0:dt:t_end; 
 
 % CREATE R MATRIX
@@ -69,20 +82,20 @@ disp(R)
 % CREATE C VECTOR
 C = zeros(1, n);
 for i = 1:n
-    id = capacitors(i, 1);
-    C(id) = capacitors(i, 3);
+    id = nodes(i, 1);
+    C(id) = nodes(i, 3);
 end
 
 % SIMULATION
 results = zeros(size(time)); 
-T = [20, 20, 20, 35]; 
+T = [20, 20, 20, 35, 20]; 
 T = T + 273.15; % Convert to Kelvin
 results(1) = T(1);
 
 for z = 2:length(time)
     dT = zeros(1, n);
 
-    Q_net_sol = 0;
+    Q_net_sol = solar_sim(location, currentTime, timeZone, phi, A_w);
     
     for k = 1:n
         
@@ -96,12 +109,16 @@ for z = 2:length(time)
                 end
             end
             % Update Temp Change: (Net Heat Flow * dt) / Capacitance
-            dT(k) = (dT(k) + Q_net_sol) * dt / C(k);
+            dT(k) = (dT(k) + Q_net_sol*nodes(k, 2)) * dt / C(k);
         end
     end
     
+    % Update temperatures
     T = T + dT;
     results(z) = T(1);
+    
+    % Increment time
+    currentTime = currentTime + seconds(dt);
 end
 
 % PLOT RESULTS

@@ -15,7 +15,16 @@ air.h_val = 3.9;
 % DEFINE SIMULATION CONDITIONS
 L = 60; W = 24; H = 6.6; % building dimensions
 V = L*W*H; 
-A_s = 2 * (L * H + W * H) + L * W; % neglect floor
+A_s = 2 * (L * H + W * H) + L * W; % Surface area of walls (neglect floor)
+
+A_w = 0.45 * A_s; % Surface area of window
+A_s = 0.55 * A_s;
+phi
+
+% SIMULATION LOCATION (Austin TX)
+location.longitude = -97.743; %[deg]
+location.latitude = 30.2672; %[deg]
+location.altitude = 185; % [m]
 
 % DEFINE CAPACITORS
 % [ID, Receives Solar?(0 or 1), Capacitance]
@@ -48,6 +57,8 @@ resistors = [
 ];
 
 % DEFINE TIME PARAMETERS
+currentTime = datetime(2026, 1, 30, 0, 0, 0);
+timeZone = -6; % UTC-6 is Central Time
 dt = 10;
 t_end = 10 * 3600;
 time = 0:dt:t_end; 
@@ -82,7 +93,7 @@ results(1) = T(1);
 for z = 2:length(time)
     dT = zeros(1, n);
 
-    Q_net_sol = 0;
+    Q_net_sol = solar_sim(location, currentTime, timeZone, phi, A_w);
     
     for k = 1:n
         
@@ -100,8 +111,12 @@ for z = 2:length(time)
         end
     end
     
+    % Update temperatures
     T = T + dT;
     results(z) = T(1);
+    
+    % Increment time
+    currentTime = currentTime + seconds(dt);
 end
 
 % PLOT RESULTS
