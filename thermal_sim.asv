@@ -21,13 +21,16 @@ air.h = 15;
 air.Cp = 1005;
 air.rho = 1.225;
 
-concrete.R_val = 0.1; % (Thermal Resistance [m^2K/W])
-concrete.C_val = 20000; 
+indoor_concrete.R = 0.1524/1.13;
+indoor_concrete.Cp = 1000;
+indoor_concrete.rho = 2000;
 
 % SIMULATION LOCATION (Austin TX)
 location.longitude = -97.743; %[deg]
 location.latitude = 30.2672; %[deg]
 location.altitude = 185; % [m]
+location.temperature.low = [5, 8, 11, 15, 19, 23, 24, 25, 22, 16, 10, 7];
+location.temperature.high = [17, 19, 24, 27, 31, 35, 36, 38, 34, 29, 22, 18];
 
 % SIMULATION LOCATION (ANCHORAGE AK)
 % location.longitude = -149.8631; %[deg]
@@ -55,13 +58,14 @@ A_window_total = sum(windows(:,1));
 A_wall_total = A_s - A_window_total;
 
 % DEFINE NODES (Capacitors)
-% [ID, Absorbs Solar?(0/1), Conductance
+% [ID, Solar Absorption %, Conductance
 nodes = [
     1, 0, face_brick.Cp*face_brick.rho*A_wall_total*0.090; % C = Cp * Density * Surface Area * Thickness
     2, 0, insulation.Cp*insulation.rho*A_wall_total*0.090;
-    3, 1, drywall.Cp*drywall.rho*A_wall_total*0.0125;
-    4, 0, air.Cp*V*air.rho; % Indoor Air
-    5, 0, inf % Outdoor air (infinite Capacitance = heat reservoir)
+    3, 0, drywall.Cp*drywall.rho*A_wall_total*0.0125;
+    4, 0, indoor_concrete.Cp*indoor_concrete.rho*L*W*0.1524;
+    5, 0, air.Cp*V*air.rho; % Indoor Air
+    6, 0, inf % Outdoor air (infinite Capacitance = heat reservoir)
 ];
 n = size(nodes, 1);
 
@@ -70,6 +74,7 @@ n = size(nodes, 1);
 R_brick_abs = face_brick.R / A_wall_total;
 R_ins_abs   = insulation.R / A_wall_total;
 R_dry_abs   = drywall.R / A_wall_total;
+
 R_conv      = 1 / (air.h * A_wall_total);
 
 resistors = [
@@ -94,7 +99,7 @@ resistors = [
 ];
 
 % DEFINE TIME PARAMETERS
-currentTime = datetime(2026, 1, 30, 0, 0, 0);
+currentTime = datetime(2026, 1, 15, 0, 0, 0);
 timeZone = -6; % UTC-6 is Central Time
 % timeZone = -9; % UTC-9 is Anchorage Time
 dt = 60;
@@ -124,12 +129,21 @@ end
 
 % SIMULATION
 results = zeros(size(time)); 
-T = [20, 20, 20, 20, 10]; 
+T = 20 * ones(1, n); 
 T = T + 273.15; % Convert to Kelvin
-results(1) = T(1);
+results(1) = T(n-1);
 
 for z = 2:length(time)
-    
+
+    % Update outside temperature:
+    low = interp1(1:12, location.temperature.low, month(currentTime), 'linear', 'extrap');
+    high = interp1(1:12, location.temperature.high, month(currentTime), 'linear', 'extrap');
+    amplitude = (high - low) / 2;
+    Period = 24 * 3600;
+    Time_of_Max = 15 * 3600;
+    outsideTemp = low + amplitude - amplitude * cos(2*pi * (time(z) - Time_of_Max) / Period) + 273.15; % Convert to Kelvin
+    T(n) = outsideTemp;
+
     dT = zeros(1, n);
 
     Q_net_sol = 0;
@@ -137,7 +151,8 @@ for z = 2:length(time)
     for y = 1:size(windows,1)
         Q_net_sol = Q_net_sol + solar_sim(location, currentTime, timeZone, windows(y,2), windows(y,1));
     end
-    
+
+
     for k = 1:n
         
         % Calculate NET flow using neighbor nodes
@@ -156,7 +171,7 @@ for z = 2:length(time)
     
     % Update temperatures
     T = T + dT;
-    results(z) = T(1);
+    results(z) = T(n-1);
     
     % Increment time
     currentTime = currentTime + seconds(dt);

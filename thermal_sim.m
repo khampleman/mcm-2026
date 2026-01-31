@@ -21,13 +21,16 @@ air.h = 15;
 air.Cp = 1005;
 air.rho = 1.225;
 
-concrete.R_val = 0.1; % (Thermal Resistance [m^2K/W])
-concrete.C_val = 20000; 
+indoor_concrete.R = 0.1524/1.13;
+indoor_concrete.Cp = 1000;
+indoor_concrete.rho = 2000;
 
 % SIMULATION LOCATION (Austin TX)
 location.longitude = -97.743; %[deg]
 location.latitude = 30.2672; %[deg]
 location.altitude = 185; % [m]
+location.temperature.low = [5, 8, 11, 15, 19, 23, 24, 25, 22, 16, 10, 7];
+location.temperature.high = [17, 19, 24, 27, 31, 35, 36, 38, 34, 29, 22, 18];
 
 % SIMULATION LOCATION (ANCHORAGE AK)
 % location.longitude = -149.8631; %[deg]
@@ -55,13 +58,14 @@ A_window_total = sum(windows(:,1));
 A_wall_total = A_s - A_window_total;
 
 % DEFINE NODES (Capacitors)
-% [ID, Absorbs Solar?(0/1), Conductance
+% [ID, Solar Absorption %, Conductance
 nodes = [
     1, 0, face_brick.Cp*face_brick.rho*A_wall_total*0.090; % C = Cp * Density * Surface Area * Thickness
     2, 0, insulation.Cp*insulation.rho*A_wall_total*0.090;
-    3, 1, drywall.Cp*drywall.rho*A_wall_total*0.0125;
-    4, 0, air.Cp*V*air.rho; % Indoor Air
-    5, 0, inf % Outdoor air (infinite Capacitance = heat reservoir)
+    3, 0, drywall.Cp*drywall.rho*A_wall_total*0.0125;
+    4, 0.8, indoor_concrete.Cp*indoor_concrete.rho*L*W*0.1524;
+    5, 0, air.Cp*V*air.rho; % Indoor Air
+    6, 0, inf % Outdoor air (infinite Capacitance = heat reservoir)
 ];
 n = size(nodes, 1);
 
@@ -70,6 +74,7 @@ n = size(nodes, 1);
 R_brick_abs = face_brick.R / A_wall_total;
 R_ins_abs   = insulation.R / A_wall_total;
 R_dry_abs   = drywall.R / A_wall_total;
+R_conc_abs  = indoor_concrete.R / (L*W);
 R_conv      = 1 / (air.h * A_wall_total);
 
 resistors = [
@@ -85,20 +90,24 @@ resistors = [
     % Resistance = Half Insulation + Half Drywall
     2, 3, (R_ins_abs / 2) + (R_dry_abs / 2);
 
-    % 4. Drywall Center (3) -> Inside Air (4)
+    % 4. Drywall Center (3) -> Inside Air (n-1)
     % Resistance = Half Drywall + Convection
-    3, 4, (R_dry_abs / 2) + R_conv;
+    3, n-1, (R_dry_abs / 2) + R_conv;
+
+    % 5. Concrete Center (4) -> Inside Air (n-1)
+    % Resistance = Half Concrete + Convection
+    4, n-1, (R_conc_abs / 2) + R_conv;
     
-    % 5. Window (Outside Air to Inside Air)
-    5, 4, 1 / (double_pane.U * A_window_total);
+    % 6. Window (Outside Air to Inside Air)
+    n, n-1, 1 / (double_pane.U * A_window_total);
 ];
 
 % DEFINE TIME PARAMETERS
-currentTime = datetime(2026, 7, 15, 0, 0, 0);
+currentTime = datetime(2026, 1, 1, 0, 0, 0);
 timeZone = -6; % UTC-6 is Central Time
 % timeZone = -9; % UTC-9 is Anchorage Time
-dt = 60;
-t_end = 4 * 24 * 3600;
+dt = 300;
+t_end = 30 * 24 * 3600;
 time = 0:dt:t_end; 
 
 % CREATE R MATRIX
@@ -124,12 +133,24 @@ end
 
 % SIMULATION
 results = zeros(size(time)); 
-T = [20, 20, 20, 20, 30]; 
+T = 20 * ones(1, n); 
 T = T + 273.15; % Convert to Kelvin
-results(1) = T(1);
+results(1) = T(n-1);
+Temps = zeros(size(time));
+Temps(1) = T(n);
 
 for z = 2:length(time)
-    
+
+    % Update outside temperature:
+    low = interp1(1:12, location.temperature.low, month(currentTime), 'linear', 'extrap');
+    high = interp1(1:12, location.temperature.high, month(currentTime), 'linear', 'extrap');
+    amplitude = (high - low) / 2;
+    Period = 24 * 3600;
+    Time_of_Max = 15 * 3600;
+    outsideTemp = low + amplitude + amplitude * cos(2*pi * (time(z) - Time_of_Max) / Period) + 273.15; % Convert to Kelvin
+    T(n) = outsideTemp;
+    Temps(z) = outsideTemp;
+
     dT = zeros(1, n);
 
     Q_net_sol = 0;
@@ -137,8 +158,9 @@ for z = 2:length(time)
     for y = 1:size(windows,1)
         Q_net_sol = Q_net_sol + solar_sim(location, currentTime, timeZone, windows(y,2), windows(y,1));
     end
-    
-    
+    Q_net_sol = 0;
+
+
     for k = 1:n
         
         % Calculate NET flow using neighbor nodes
@@ -157,7 +179,7 @@ for z = 2:length(time)
     
     % Update temperatures
     T = T + dT;
-    results(z) = T(1);
+    results(z) = T(n-1);
     
     % Increment time
     currentTime = currentTime + seconds(dt);
@@ -165,7 +187,9 @@ end
 
 % PLOT RESULTS
 figure;
-plot(time/3600, results-273.15, 'LineWidth', 2);
+scatter(mod(time, 24*3600)/3600, results-273.15, '.');
+hold on;
+scatter(mod(time, 24*3600)/3600, Temps-273.15, '.r');
 xlabel('Time (hours)');
 ylabel('Temperature (°C)');
 title('Indoor Temperature Response');
