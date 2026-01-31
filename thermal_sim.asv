@@ -3,20 +3,32 @@ clear;
 close all;
 
 % DEFINE MATERIAL PARAMETERS
+face_brick.R = 0.090/1.31; % thickness/k
+face_brick.Cp = 921;
+face_brick.rho = 2083;
 
-% !!!!!!! THESE VALUES NEED TO BE MORE PRECISELY CHOSEN !!!!!!!!!!!
-% These are random values I got from Gemini, we will choose these from
-% research sources
+drywall.R = 0.0125/0.16;
+drywall.Cp = 840;
+drywall.rho = 950;
 
-concrete.R_val = 2.29; % (Thermal Resistance [m^2K/W])
+insulation.R = 0.090/0.035;
+insulation.Cp = 840;
+insulation.rho = 12;
+
+double_pane.U = 2.8;
+
+concrete.R_val = 0.1; % (Thermal Resistance [m^2K/W])
 concrete.C_val = 20000; 
-air.h_val = 3.9; 
-window.U_val = 2.8;
 
 % SIMULATION LOCATION (Austin TX)
 location.longitude = -97.743; %[deg]
 location.latitude = 30.2672; %[deg]
 location.altitude = 185; % [m]
+
+% SIMULATION LOCATION (ANCHORAGE AK)
+% location.longitude = -149.8631; %[deg]
+% location.latitude = 61.2173; %[deg]
+% location.altitude = 31; % [m]
 
 % DEFINE SIMULATION CONDITIONS
 L = 60; W = 24; H = 6.6; % Building dimensions
@@ -59,10 +71,11 @@ resistors = [
 ];
 
 % DEFINE TIME PARAMETERS
-currentTime = datetime(2026, 7, 15, 0, 0, 0);
+currentTime = datetime(2026, 1, 30, 0, 0, 0);
 timeZone = -6; % UTC-6 is Central Time
-dt = 10;
-t_end = 7 * 24 * 3600;
+% timeZone = -9; % UTC-9 is Anchorage Time
+dt = 60;
+t_end = 4 * 24 * 3600;
 time = 0:dt:t_end; 
 
 % CREATE R MATRIX
@@ -88,7 +101,7 @@ end
 
 % SIMULATION
 results = zeros(size(time)); 
-T = [20, 20, 20, 30]; 
+T = [20, 20, 20, 10]; 
 T = T + 273.15; % Convert to Kelvin
 results(1) = T(1);
 
@@ -96,10 +109,10 @@ for z = 2:length(time)
     
     dT = zeros(1, n);
 
-    Q_net_sol = 0
+    Q_net_sol = 0;
     
     for y = 1:size(windows,1)
-        Q_net_sol = Q_net_sol + solar_sim(location, currentTime, timeZone, windows, A_w);
+        Q_net_sol = Q_net_sol + solar_sim(location, currentTime, timeZone, windows(y,2), windows(y,1));
     end
     
     for k = 1:n
