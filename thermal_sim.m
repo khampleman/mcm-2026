@@ -8,7 +8,7 @@ close all;
 % These are random values I got from Gemini, we will choose these from
 % research sources
 
-concrete.R_val = 2.29; % (Thermal Resistance [m^2K/W])
+concrete.R_val = 0.1; % (Thermal Resistance [m^2K/W])
 concrete.C_val = 20000; 
 air.h_val = 3.9; 
 window.U_val = 2.8;
@@ -23,23 +23,19 @@ L = 60; W = 24; H = 6.6; % Building dimensions
 V = L*W*H; % Volume of building
 A_s = 2 * (L * H + W * H) + L * W; % Surface area of whole building (neglect floor)
 % Calculate the specific area of the South Wall
-A_South_Wall = L * H; 
+A_NS_Wall = L * H; 
+A_EW_Wall = W * H;
 
-% Set window as a percentage of THAT wall (e.g., 40%)
-Window_Ratio = 0.45;
-A_w = Window_Ratio * A_South_Wall; 
+% DEFINE WINDOWS
+% [Surface Area(m^2_, Phi Angle(deg east of north)]
+windows = [
+    0.45*A_NS_Wall, 180; % South Window
+    0.30*A_NS_Wall, 0;   % North Window
+    0.30*A_EW_Wall, 90;  % East  Window
+    0.30*A_EW_Wall, 270; % West  Window
+];
 
-% The remaining South wall is concrete
-A_opaque_south = A_South_Wall - A_w;
-
-% The other walls (North, East, West) + Roof
-A_other_walls = A_s - A_South_Wall; 
-
-% Total Opaque Area (Concrete)
-A_concrete_total = A_other_walls + A_opaque_south;
-
-% Window angle east of north [deg]
-phi = 180;
+A_concrete_total = A_s - sum(windows(:,1));
 
 % DEFINE NODES (Capacitors)
 nodes = [
@@ -59,14 +55,14 @@ resistors = [
   
   % 2. Window Path
   % Connect Outside (4) DIRECTLY to Inside (1))
-  4, 1, 1 / (window.U_val * A_w);
+  4, 1, 1 / (window.U_val * sum(windows(:,1)));
 ];
 
 % DEFINE TIME PARAMETERS
 currentTime = datetime(2026, 7, 15, 0, 0, 0);
 timeZone = -6; % UTC-6 is Central Time
-dt = 10;
-t_end = 7 * 24 * 3600;
+dt = 60;
+t_end = 4 * 24 * 3600;
 time = 0:dt:t_end; 
 
 % CREATE R MATRIX
@@ -97,15 +93,14 @@ T = T + 273.15; % Convert to Kelvin
 results(1) = T(1);
 
 for z = 2:length(time)
-    % High: 35
-    % Low: 23
-
-    T(4) = 23 + (35-23)*sin(2*pi/(24*3600)*time(z));
     
-
     dT = zeros(1, n);
 
-    Q_net_sol = solar_sim(location, currentTime, timeZone, phi, A_w);
+    Q_net_sol = 0;
+    
+    for y = 1:size(windows,1)
+        Q_net_sol = Q_net_sol + solar_sim(location, currentTime, timeZone, windows(y,2), windows(y,1));
+    end
     
     for k = 1:n
         
