@@ -8,59 +8,65 @@ close all;
 % These are random values I got from Gemini, we will choose these from
 % research sources
 
-concrete.R_val = 0.1; % (Thermal Resistance [m^2K/W])
+concrete.R_val = 2.29; % (Thermal Resistance [m^2K/W])
 concrete.C_val = 20000; 
 air.h_val = 3.9; 
-
-% DEFINE SIMULATION CONDITIONS
-L = 60; W = 24; H = 6.6; % building dimensions
-V = L*W*H; 
-A_s = 2 * (L * H + W * H) + L * W; % Surface area of walls (neglect floor)
-
-A_w = 0.45 * A_s; % Surface area of window
-A_s = 0.55 * A_s;
-phi
+window.U_val = 2.8;
 
 % SIMULATION LOCATION (Austin TX)
 location.longitude = -97.743; %[deg]
 location.latitude = 30.2672; %[deg]
 location.altitude = 185; % [m]
 
-% DEFINE CAPACITORS
-% [ID, Receives Solar?(0 or 1), Capacitance]
-capacitors = [
-  1, 0, 1.225 * V * 1006;         % Indoor Air (rho * V * c_p)
-  2, 1, (concrete.C_val/2) * A_s; % Interior Wall Mass
-  3, 0, (concrete.C_val/2) * A_s; % Exterior Wall Mass
-  4, 0, inf;                      % Outside Air (infinite capacitance means heat reservoir)
-  5, 0, window.C_val * A_w;       % Window
+% DEFINE SIMULATION CONDITIONS
+L = 60; W = 24; H = 6.6; % Building dimensions
+V = L*W*H; % Volume of building
+A_s = 2 * (L * H + W * H) + L * W; % Surface area of whole building (neglect floor)
+% Calculate the specific area of the South Wall
+A_South_Wall = L * H; 
+
+% Set window as a percentage of THAT wall (e.g., 40%)
+Window_Ratio = 0.45;
+A_w = Window_Ratio * A_South_Wall; 
+
+% The remaining South wall is concrete
+A_opaque_south = A_South_Wall - A_w;
+
+% The other walls (North, East, West) + Roof
+A_other_walls = A_s - A_South_Wall; 
+
+% Total Opaque Area (Concrete)
+A_concrete_total = A_other_walls + A_opaque_south;
+
+% Window angle east of north [deg]
+phi = 180;
+
+% DEFINE NODES (Capacitors)
+nodes = [
+  1, 0, 1.225 * V * 1006;         % Indoor Air
+  2, 1, (concrete.C_val/2) * A_concrete_total; % Interior Wall Mass
+  3, 0, (concrete.C_val/2) * A_concrete_total; % Exterior Wall Mass
+  4, 0, inf;                      % Outside Air
 ];
-n = size(capacitors, 1);
+n = size(nodes, 1);
 
 % DEFINE RESISTORS
-% [Node 1, Node 2, Resistance Value]
 resistors = [
-  % Outside -> Exterior Wall: Convection Resistance = 1 / (h * Area)
-  4, 3, 1 / (air.h_val * A_s); 
+  % 1. Concrete Path (Outside -> Ext -> Int -> Inside)
+  4, 3, 1 / (air.h_val * A_concrete_total); 
+  3, 2, concrete.R_val / A_concrete_total; 
+  2, 1, 1 / (air.h_val * A_concrete_total);
   
-  % Conduction Resistance = R_value / Area
-  3, 2, concrete.R_val / A_s; 
-  
-  % Interior Wall -> Inside: Convection Resistance = 1 / (h * Area)
-  2, 1, 1 / (air.h_val * A_s);
-
-  % Outside -> Window: Convection Resistance = 1 / (h * Area)
-  4, 5, 1 / (air.h_val * A_w);
-
-  % Window -> Inside: Convection Resistance = 1 / (h * Area)
-  5, 1, 1 / (air.h_val * A_w);
+  % 2. Window Path
+  % Connect Outside (4) DIRECTLY to Inside (1))
+  4, 1, 1 / (window.U_val * A_w);
 ];
 
 % DEFINE TIME PARAMETERS
-currentTime = datetime(2026, 1, 30, 0, 0, 0);
+currentTime = datetime(2026, 7, 15, 0, 0, 0);
 timeZone = -6; % UTC-6 is Central Time
 dt = 10;
-t_end = 10 * 3600;
+t_end = 7 * 24 * 3600;
 time = 0:dt:t_end; 
 
 % CREATE R MATRIX
@@ -80,17 +86,23 @@ disp(R)
 % CREATE C VECTOR
 C = zeros(1, n);
 for i = 1:n
-    id = capacitors(i, 1);
-    C(id) = capacitors(i, 3);
+    id = nodes(i, 1);
+    C(id) = nodes(i, 3);
 end
 
 % SIMULATION
 results = zeros(size(time)); 
-T = [20, 20, 20, 35]; 
+T = [20, 20, 20, 30]; 
 T = T + 273.15; % Convert to Kelvin
 results(1) = T(1);
 
 for z = 2:length(time)
+    % High: 35
+    % Low: 23
+
+    T(4) = 23 + (35-23)*sin(2*pi/(24*3600)*time(z));
+    
+
     dT = zeros(1, n);
 
     Q_net_sol = solar_sim(location, currentTime, timeZone, phi, A_w);
@@ -107,7 +119,7 @@ for z = 2:length(time)
                 end
             end
             % Update Temp Change: (Net Heat Flow * dt) / Capacitance
-            dT(k) = (dT(k) + Q_net_sol) * dt / C(k);
+            dT(k) = (dT(k) + Q_net_sol*nodes(k, 2)) * dt / C(k);
         end
     end
     
