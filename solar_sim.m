@@ -55,7 +55,10 @@ for z = 1:length(time)
 
     % Calculate Q_solar
     cos_theta = cos(deg2rad(sun.altitude))*cos(deg2rad(sun.azimuth-phi));
-    Q_solar = DNI*A_w*cos_theta;
+    Q_solar = 0;
+    if cos_theta > 0
+        Q_solar = DNI*A_w*cos_theta;
+    end
 
     % Store data
     sunAltitudes(z) = sun.altitude;
