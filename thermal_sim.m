@@ -50,33 +50,51 @@ windows = [
     0.30*A_EW_Wall, 90;  % East  Window
     0.30*A_EW_Wall, 270; % West  Window
 ];
-A_w_total = sum(windows(:,1));
+A_window_total = sum(windows(:,1));
 
-A_concrete_total = A_s - A_w_total;
+A_wall_total = A_s - A_window_total;
 
 % DEFINE NODES (Capacitors)
+% [ID, Absorbs Solar?(0/1), Conductance
 nodes = [
-  1, 0, 1.225 * V * 1006;         % Indoor Air
-  2, 1, (concrete.C_val/2) * A_concrete_total; % Interior Wall Mass
-  3, 0, (concrete.C_val/2) * A_concrete_total; % Exterior Wall Mass
-  4, 0, inf;                      % Outside Air
+    1, 0, face_brick.Cp*face_brick.rho*A_wall_total*0.090; % C = Cp * Density * Surface Area * Thickness
+    2, 0, insulation.Cp*insulation.rho*A_wall_total*0.090;
+    3, 1, drywall.Cp*drywall.rho*A_wall_total*0.0125;
+    4, 0, air.Cp*V*air.rho; % Indoor Air
+    5, 0, inf % Outdoor air (infinite Capacitance = heat reservoir)
 ];
 n = size(nodes, 1);
 
 % DEFINE RESISTORS
+% pre-calculate (R_absolute = R_value / Area)
+R_brick_abs = face_brick.R / A_wall_total;
+R_ins_abs   = insulation.R / A_wall_total;
+R_dry_abs   = drywall.R / A_wall_total;
+R_conv      = 1 / (air.h * A_wall_total);
+
 resistors = [
-  % 1. Concrete Path (Outside -> Ext -> Int -> Inside)
-  4, 3, 1 / (air.h * A_concrete_total); 
-  3, 2, concrete.R_val / A_concrete_total; 
-  2, 1, 1 / (air.h * A_concrete_total);
-  
-  % 2. Window Path
-  % Connect Outside (4) DIRECTLY to Inside (1))
-  4, 1, 1 / (double_pane.U * A_w_total);
+    % 1. Outside Air (5) -> Face Brick Center (1)
+    % Resistance = Convection + Half Brick
+    5, 1, R_conv + (R_brick_abs / 2);
+
+    % 2. Face Brick Center (1) -> Insulation Center (2)
+    % Resistance = Half Brick + Half Insulation
+    1, 2, (R_brick_abs / 2) + (R_ins_abs / 2);
+
+    % 3. Insulation Center (2) -> Drywall Center (3)
+    % Resistance = Half Insulation + Half Drywall
+    2, 3, (R_ins_abs / 2) + (R_dry_abs / 2);
+
+    % 4. Drywall Center (3) -> Inside Air (4)
+    % Resistance = Half Drywall + Convection
+    3, 4, (R_dry_abs / 2) + R_conv;
+    
+    % 5. Window (Outside Air to Inside Air)
+    5, 4, 1 / (double_pane.U * A_window_total);
 ];
 
 % DEFINE TIME PARAMETERS
-currentTime = datetime(2026, 1, 30, 0, 0, 0);
+currentTime = datetime(2026, 7, 15, 0, 0, 0);
 timeZone = -6; % UTC-6 is Central Time
 % timeZone = -9; % UTC-9 is Anchorage Time
 dt = 60;
@@ -106,7 +124,7 @@ end
 
 % SIMULATION
 results = zeros(size(time)); 
-T = [20, 20, 20, 10]; 
+T = [20, 20, 20, 20, 30]; 
 T = T + 273.15; % Convert to Kelvin
 results(1) = T(1);
 
@@ -119,6 +137,7 @@ for z = 2:length(time)
     for y = 1:size(windows,1)
         Q_net_sol = Q_net_sol + solar_sim(location, currentTime, timeZone, windows(y,2), windows(y,1));
     end
+    
     
     for k = 1:n
         
