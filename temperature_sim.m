@@ -115,7 +115,7 @@ currentTime = datetime(2026, 1, 1, 0, 0, 0);
 timeZone = -6; % UTC-6 is Central Time
 % timeZone = -9; % UTC-9 is Anchorage Time
 dt = 60;
-t_end = 30 * 24 * 3600;
+t_end = 5 * 24 * 3600;
 time = 0:dt:t_end; 
 
 % CREATE R MATRIX
