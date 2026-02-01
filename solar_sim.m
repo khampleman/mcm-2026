@@ -22,9 +22,15 @@ end
 
 % Calculate Q_solar
 cos_theta = cos(deg2rad(sun.altitude))*cos(deg2rad(sun.azimuth-phi));
+theta = acosd (cos_theta);
+g_theta = 0.75;
+if theta > 60
+    g_theta = (-0.75/30) * (theta - 60) + 0.75;
+end
+
 Q_solar = 0;
 if cos_theta > 0
-Q_solar = DNI*A_w*cos_theta;
+Q_solar = DNI*A_w*cos_theta*g_theta;
 end
 
 % % Plot altitude vs azimuth
