@@ -1,4 +1,4 @@
-function A_SL = louver_sunlit_area(sun, psi, W, H, Pv, Ph, theta)
+function [A_WinSL, A_WallSL] = louver_sunlit_area(sun, psi, W, H, Pv, Ph, theta, H_spac)
 
 % sun: [struct]
 % ---- zenith  [deg]
@@ -16,6 +16,8 @@ psi = deg2rad(psi);
 % theta: [deg] Vertical louver angle
 theta = deg2rad(theta);
 
+% H_spac: Horizontal spacing between windows
+
 % SIMULATION
 
 % Convert sun data to radians
@@ -27,7 +29,8 @@ gamma = sun.azimuth - psi; % Surface solar azimuth
 
 % If the angle of incidence is > 90 degrees, the window is in self-shadow
 if cos(gamma) <= 0
-    A_SL = 0;
+    A_WinSL = 0;
+    A_WallSL = 0;
     return;
 end
 
@@ -47,7 +50,13 @@ shadow_width = Pv * (abs(sin(gamma - theta)) / (cos(theta) * cos(gamma)));
 % Sunlit Width = Window Width - Shadow Width
 w_sunlit = max(0, W - shadow_width);
 
-% Final Area Calculation
-A_SL = w_sunlit * h_sunlit;
+% Final Area Calculation for Window
+A_WinSL = w_sunlit * h_sunlit;
+
+% Calculate sunlit wall area
+w_sunlit = max(0, H_spac - shadow_width);
+
+% Final Area Calculation for Wall
+A_WallSL = w_sunlit * H; 
 
 end

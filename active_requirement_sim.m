@@ -21,39 +21,33 @@ indoor_concrete.rho = 2000;
 % Solar Absorptivity
 alpha_wall = 0.7; % Standard Brick
 alpha_roof = 0.2; % White Roof
-
 % SIMULATION LOCATION (Austin TX)
 location.longitude = -97.743; %[deg]
 location.latitude = 30.2672; %[deg]
 location.altitude = 185; % [m]
 location.temperature.low = [5, 8, 11, 15, 19, 23, 24, 25, 22, 16, 10, 7];
 location.temperature.high = [17, 19, 24, 27, 31, 35, 36, 38, 34, 29, 22, 18];
-
 % DEFINE SIMULATION CONDITIONS
 L = 60; W = 24; H = 6.6; % Building dimensions
 V = L*W*H; % Volume of building
-
 % Area Calculations (Separating Roof vs Walls)
 A_roof = L * W; % Roof Area (Horizontal)
 A_vertical_gross = 2 * (L * H + W * H); % Total Vertical Wall Area
 A_total_shell_gross = A_roof + A_vertical_gross; % Total Exterior Area
-
 % Calculate the specific area of the South Wall
 A_NS_Wall = L * H; 
 A_EW_Wall = W * H;
-
 % DEFINE WINDOWS AND EXTERIOR WALLS
 % [   Surface Area(m^2_, Phi Angle(deg east of north), 
 % ... # of windows on face, Width, Height,
-% ... Vertical Projection, Horizontal Projection, louver angle]
+% ... Vertical Projection, Horizontal Projection, louver angle, Horiz Spacing]
 windows = [
-    0.45*A_NS_Wall, 180, 36, 1.723, 2.872, 0.5, 0.5, -25; % South Window
-    0.30*A_NS_Wall, 0  , 36, 1.407, 2.345, 0  , 0  , 0 ; % North Window
-    0.30*A_EW_Wall, 90 , 14, 1.427, 2.378, 0.5, 0.5, -25; % East  Window
-    0.30*A_EW_Wall, 270, 14, 1.427, 2.378, 0.5, 0.5, -25; % West  Window
-%   1               2    3   4      5      6    7    8
+    0.45*A_NS_Wall, 180, 36, 1.723, 2.872, 0.5, 0.5, -25, 1.525; % South Window
+    0.30*A_NS_Wall, 0  , 36, 1.407, 2.345, 0  , 0  , 0  , 1.824; % North Window
+    0.30*A_EW_Wall, 90 , 14, 1.427, 2.378, 0.5, 0.5, -25, 1.751; % East  Window
+    0.30*A_EW_Wall, 270, 14, 1.427, 2.378, 0.5, 0.5, -25, 1.751; % West  Window
+%   1               2    3   4      5      6    7    8    9
 ];
-
 % Calculate OPAQUE Area (Total Wall - Window Area)
 % [Area, Angle]
 opaque_walls = [
@@ -62,11 +56,9 @@ opaque_walls = [
     (A_EW_Wall - windows(3,1)), 90;  % East Wall
     (A_EW_Wall - windows(4,1)), 270; % West Wall
 ];
-
 A_window_total = sum(windows(:,1));
 % Total Opaque Area (Vertical Walls + Roof) for Mass/Resistance calculations
 A_opaque_total = A_total_shell_gross - A_window_total;
-
 % DEFINE NODES (Capacitors)
 % [ID, Interior Solar Absorption %, Exterior Solar Absorption %, Capacitance
 nodes = [
@@ -78,7 +70,6 @@ nodes = [
     6, 0  , 0  , inf % Outdoor air (infinite Capacitance = heat reservoir)
 ];
 n = size(nodes, 1);
-
 % DEFINE RESISTORS
 % pre-calculate (R_absolute = R_value / Area)
 R_brick_abs = face_brick.R / A_opaque_total;
@@ -86,7 +77,6 @@ R_ins_abs   = insulation.R / A_opaque_total;
 R_dry_abs   = drywall.R / A_opaque_total;
 R_conc_abs  = indoor_concrete.R / (L*W);
 R_conv      = 1 / (air.h * A_opaque_total);
-
 resistors = [
     % 1. Outside Air (5) -> Face Brick Center (1)
     % Resistance = Convection + Half Brick
@@ -107,7 +97,6 @@ resistors = [
     % 6. Window (Outside Air to Inside Air)
     n, n-1, 1 / (double_pane.U * A_window_total);
 ];
-
 % CREATE R MATRIX
 R = zeros(n, n);
 for i = 1:size(resistors,1)
@@ -120,25 +109,21 @@ for i = 1:size(resistors,1)
     R(node2, node1) = r_val; 
 end
 disp(R)
-
 % CREATE C VECTOR
 C = zeros(n, 1);
 for i = 1:n
     id = nodes(i, 1);
     C(id) = nodes(i, 4);
 end
-
 % Time Set Up
 dt = 600; % Time step (seconds).
 t_end = 365 * 24 * 3600;
 time_vec = 0:dt:t_end;
 num_steps = length(time_vec);
-
 % Generate dates for the whole year
 start_date = datetime(2026, 1, 1, 0, 0, 0);
 date_list = start_date + seconds(time_vec);
 months = month(date_list);
-
 % Pre-Calculate Temperatures for the year (Smoothed)
 % Map monthly data to the middle of each month
 month_centers = 15:30:365; 
@@ -150,12 +135,10 @@ lows = interp1(month_centers_wrap, monthly_lows_wrap, day_of_year_vec, 'pchip');
 highs = interp1(month_centers_wrap, monthly_highs_wrap, day_of_year_vec, 'pchip');
 amps = (highs - lows) / 2;
 T_outside_vec = lows + amps + amps .* cos(2*pi * (time_vec - 15*3600) / (24*3600)) + 273.15;
-
 % SIMULATION
 T = 20 * ones(n, 1) + 273.15; % Initial Temp Vector
 energy_inputs = zeros(num_steps, 1);
 timeZone = -6;
-
 tic; % Start timer
 for z = 1:num_steps
     % Update Outside Air Temp
@@ -172,12 +155,30 @@ for z = 1:num_steps
     
     dT = zeros(n, 1);
     Q_sol_win = 0;
+    Q_wall_shaded_loss = 0; % Track how much energy is blocked by shadows on the wall
     
-    % Calculate heat through windows from sun.
+    % Calculate heat through windows from sun AND shadow on walls.
     for y = 1:size(windows,1)
-        % Effective surface area with louver shading: # of windows * effective of one window
-        A_s_eff = windows(y,3) * louver_sunlit_area(sun, windows(y,2), windows(y,4), windows(y,5), windows(y,6), windows(y,7), windows(y,8));
-        Q_sol_win = Q_sol_win + solar_sim(sun, windows(y,2), A_s_eff);
+        % Effective surface area with louver shading
+        [A_win_sl_one, A_wall_sl_one] = louver_sunlit_area(sun, windows(y,2), windows(y,4), windows(y,5), windows(y,6), windows(y,7), windows(y,8), windows(y,9));
+        
+        % 1. Add Window Solar Gain
+        % Area effective = Sunlit Area * Number of Windows
+        A_win_total_eff = A_win_sl_one * windows(y,3);
+        Q_sol_win = Q_sol_win + solar_sim(sun, windows(y,2), A_win_total_eff);
+        
+        % 2. Calculate Shadow Loss on Wall Gap
+        % Total Area of the Gap = H_win * H_spac
+        Area_Gap_One = windows(y,5) * windows(y,9);
+        % Shaded Area = Total Gap - Sunlit Gap (from helper function)
+        Area_Gap_Shaded_One = Area_Gap_One - A_wall_sl_one;
+        
+        % If there is shadow, subtract that energy from the wall calculation
+        if Area_Gap_Shaded_One > 0
+            % Total Shaded Gap Area = Shaded One * Count
+            Q_blocked = solar_sim(sun, windows(y,2), Area_Gap_Shaded_One * windows(y,3));
+            Q_wall_shaded_loss = Q_wall_shaded_loss + Q_blocked;
+        end
     end
     
     % Calculate heating of exterior surface from sun.
@@ -189,6 +190,9 @@ for z = 1:num_steps
         Q_absorbed_shell = Q_absorbed_shell + (Q_incident * alpha_wall);
     end
     
+    % Subtract the energy blocked by shadows (account for absorptivity)
+    Q_absorbed_shell = Q_absorbed_shell - (Q_wall_shaded_loss * alpha_wall);
+    
     % 2. Horizontal Roof (20% Absorption)
     if (90 - sun.zenith) > 0
         zenith_rad = deg2rad(sun.zenith);
@@ -199,7 +203,6 @@ for z = 1:num_steps
         Q_incident_roof = 0;
     end
     Q_absorbed_shell = Q_absorbed_shell + (Q_incident_roof * alpha_roof);
-
     for k = 1:n
         
         % Calculate NET flow using neighbor nodes
@@ -228,7 +231,24 @@ for z = 1:num_steps
     T(n-1) = 293.15;
 end
 toc;
-
+% TOTAL ENERGY CALCULATION
+% Separate Heating (Positive) and Cooling (Negative)
+heating_power = max(0, energy_inputs); % zeros out negative values
+cooling_power = abs(min(0, energy_inputs)); % zeros out positive values & makes cooling positive
+% Integrate Power over Time to get Energy (Joules)
+total_heating_joules = sum(heating_power) * dt;
+total_cooling_joules = sum(cooling_power) * dt;
+% Convert Joules to kWh
+% 1 kWh = 3,600,000 Joules
+total_heating_kWh = total_heating_joules / 3.6e6;
+total_cooling_kWh = total_cooling_joules / 3.6e6;
+% Display Annual Totals
+fprintf('\n--------------------------------------\n');
+fprintf('ANNUAL ENERGY SIMULATION RESULTS\n');
+fprintf('--------------------------------------\n');
+fprintf('Total Heating Load: %.2f kWh\n', total_heating_kWh);
+fprintf('Total Cooling Load: %.2f kWh\n', total_cooling_kWh);
+fprintf('Total System Load:  %.2f kWh\n', total_heating_kWh + total_cooling_kWh);
 % PLOT RESULT
 figure;
 % Plot a zoomed-in week in Summer (approx 4000 hours in)
@@ -238,42 +258,10 @@ zoom_end = zoom_start + 168*(3600/dt);
 plot(time_vec(zoom_start:zoom_end)/3600, energy_inputs(zoom_start:zoom_end)/1000, 'LineWidth', 1.5);
 xlabel('Time (hours)'); ylabel('Load (kW)'); title('Zoomed Summer Week');
 grid on;
-
-% Plot Annual
-subplot(2,1,2);
-scatter(time_vec/3600, energy_inputs/1000, '.');
-xlabel('Time (hours)'); ylabel('Load (kW)'); title('Annual Active Heating/Cooling');
-grid on;
-
-% TOTAL ENERGY CALCULATION
-
-% Separate Heating (Positive) and Cooling (Negative)
-heating_power = max(0, energy_inputs); % zeros out negative values
-cooling_power = abs(min(0, energy_inputs)); % zeros out positive values & makes cooling positive
-
-% Integrate Power over Time to get Energy (Joules)
-total_heating_joules = sum(heating_power) * dt;
-total_cooling_joules = sum(cooling_power) * dt;
-
-% Convert Joules to kWh
-% 1 kWh = 3,600,000 Joules
-total_heating_kWh = total_heating_joules / 3.6e6;
-total_cooling_kWh = total_cooling_joules / 3.6e6;
-
-% Display Annual Totals
-fprintf('\n--------------------------------------\n');
-fprintf('ANNUAL ENERGY SIMULATION RESULTS\n');
-fprintf('--------------------------------------\n');
-fprintf('Total Heating Load: %.2f kWh\n', total_heating_kWh);
-fprintf('Total Cooling Load: %.2f kWh\n', total_cooling_kWh);
-fprintf('Total System Load:  %.2f kWh\n', total_heating_kWh + total_cooling_kWh);
-
 % MONTHLY BREAKDOWN PLOT
 step_months = month(start_date + seconds(time_vec(1:end-1))); % Exclude last point to match size
-
 monthly_heating = zeros(1, 12);
 monthly_cooling = zeros(1, 12);
-
 for m = 1:12
     % Find indices for this month
     idx = (step_months == m);
@@ -282,8 +270,7 @@ for m = 1:12
     monthly_heating(m) = sum(heating_power(idx)) * dt / 3.6e6;
     monthly_cooling(m) = sum(cooling_power(idx)) * dt / 3.6e6;
 end
-
-figure('Name', 'Monthly Energy Usage');
+subplot(2,1,2);
 b = bar(1:12, [monthly_heating; monthly_cooling]', 'stacked');
 b(1).FaceColor = [0.8500 0.3250 0.0980]; % Red for Heating
 b(2).FaceColor = [0.0000 0.4470 0.7410]; % Blue for Cooling
