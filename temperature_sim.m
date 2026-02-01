@@ -29,13 +29,10 @@ indoor_concrete.rho = 2000;
 location.longitude = -97.743; %[deg]
 location.latitude = 30.2672; %[deg]
 location.altitude = 185; % [m]
-location.temperature.low = [5, 8, 11, 15, 19, 23, 24, 25, 22, 16, 10, 7];
-location.temperature.high = [17, 19, 24, 27, 31, 35, 36, 38, 34, 29, 22, 18];
 
-% SIMULATION LOCATION (ANCHORAGE AK)
-% location.longitude = -149.8631; %[deg]
-% location.latitude = 61.2173; %[deg]
-% location.altitude = 31; % [m]
+                            % Jan                  -                   Dec
+location.temperature.low =  [5, 8, 11, 15, 19, 23, 24, 25, 22, 16, 10, 7];
+location.temperature.high = [17, 19, 24, 27, 31, 35, 36, 38, 34, 29, 22, 18];
 
 % DEFINE SIMULATION CONDITIONS
 L = 60; W = 24; H = 6.6; % Building dimensions
@@ -71,7 +68,7 @@ A_wall_total = A_s - A_window_total;
 % DEFINE NODES (Capacitors)
 % [ID, Interior Solar Absorption %, Exterior Solar Absorption %, Capacitance
 nodes = [
-    1, 0  , 0.7, face_brick.Cp*face_brick.rho*A_wall_total*0.090; % C = Cp * Density * Surface Area * Thickness
+    1, 0  , 0.0, face_brick.Cp*face_brick.rho*A_wall_total*0.090; % C = Cp * Density * Surface Area * Thickness
     2, 0  , 0  , insulation.Cp*insulation.rho*A_wall_total*0.090;
     3, 0  , 0  , drywall.Cp*drywall.rho*A_wall_total*0.0125;
     4, 0.8, 0  , indoor_concrete.Cp*indoor_concrete.rho*L*W*0.1524;
@@ -143,13 +140,13 @@ for i = 1:n
 end
 
 % SIMULATION
-energy_inputs = zeros(size(time)); 
+indoor_temps = zeros(size(time)); 
 
 T = 20 * ones(1, n); 
 T = T + 273.15; % Convert to Kelvin
 indoor_temps(1) = T(n-1);
-Temps = zeros(size(time));
-Temps(1) = T(n);
+outdoor_temps = zeros(size(time));
+outdoor_temps(1) = T(n);
 
 for z = 2:length(time)
 
@@ -161,15 +158,20 @@ for z = 2:length(time)
     Time_of_Max = 15 * 3600;
     outsideTemp = low + amplitude + amplitude * cos(2*pi * (time(z) - Time_of_Max) / Period) + 273.15; % Convert to Kelvin
     T(n) = outsideTemp;
-    Temps(z) = outsideTemp;
+    outdoor_temps(z) = outsideTemp;
 
     dT = zeros(1, n);
 
-    Q_net_sol_win = 0;
-    
+    Q_sol_win = 0;
     % Calculate heat through windows from sun.
     for y = 1:size(windows,1)
-        Q_net_sol_win = Q_net_sol_win + solar_sim(location, currentTime, timeZone, windows(y,2), windows(y,1));
+        Q_sol_win = Q_sol_win + solar_sim(location, currentTime, timeZone, windows(y,2), windows(y,1));
+    end
+
+    Q_sol_wall = 0;
+    % Calculate heating of exterior surface from sun.
+    for y = 1:size(windows,1)
+        Q_sol_wall = Q_sol_wall + solar_sim(location, currentTime, timeZone, opaque_walls(y,2), opaque_walls(y,1));
     end
 
 
@@ -185,18 +187,15 @@ for z = 2:length(time)
                 end
             end
             % Update Temp Change: (Net Heat Flow * dt) / Capacitance
-            dT(k) = (dT(k) + Q_net_sol_win*nodes(k, 2)) * dt / C(k);
+            dT(k) = (dT(k) + Q_sol_win*nodes(k, 2) + Q_sol_wall*nodes(k,3)) * dt / C(k);
         end
     end
     
     % Update temperatures
     T = T + dT;
 
-    % Calculate energy required to heat/cool
-    energy_inputs(z) =  -1 * nodes(n-1,4) * (dT(n-1)/dt);
-
-    T(n-1) = 293.15;
-    
+    % Store indoor temperature
+    indoor_temps(z) = T(n-1);
 
     % Increment time
     currentTime = currentTime + seconds(dt);
@@ -204,9 +203,10 @@ end
 
 % PLOT RESULTS
 figure;
-scatter(mod(time, 24*3600)/3600, energy_inputs/1000, '.');
+scatter(mod(time, 24*3600)/3600, indoor_temps-273.15, '.');
 hold on;
+scatter(mod(time, 24*3600)/3600, outdoor_temps-273.15, '.r');
 xlabel('Time (hours)');
-ylabel('Load (kW)');
-title('Active Heating/Cooling Requirements');
+ylabel('Temperature (°C)');
+title('Interior Air Temperature');
 grid on;
