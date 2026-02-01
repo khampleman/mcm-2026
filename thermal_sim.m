@@ -58,13 +58,13 @@ A_window_total = sum(windows(:,1));
 A_wall_total = A_s - A_window_total;
 
 % DEFINE NODES (Capacitors)
-% [ID, Solar Absorption %, Conductance
+% [ID, Solar Absorption %, Capacitance
 nodes = [
     1, 0, face_brick.Cp*face_brick.rho*A_wall_total*0.090; % C = Cp * Density * Surface Area * Thickness
     2, 0, insulation.Cp*insulation.rho*A_wall_total*0.090;
     3, 0, drywall.Cp*drywall.rho*A_wall_total*0.0125;
     4, 0.8, indoor_concrete.Cp*indoor_concrete.rho*L*W*0.1524;
-    5, 0, air.Cp*V*air.rho; % Indoor Air
+    5, 0.2, air.Cp*V*air.rho; % Indoor Air
     6, 0, inf % Outdoor air (infinite Capacitance = heat reservoir)
 ];
 n = size(nodes, 1);
@@ -80,7 +80,7 @@ R_conv      = 1 / (air.h * A_wall_total);
 resistors = [
     % 1. Outside Air (5) -> Face Brick Center (1)
     % Resistance = Convection + Half Brick
-    5, 1, R_conv + (R_brick_abs / 2);
+    n, 1, R_conv + (R_brick_abs / 2);
 
     % 2. Face Brick Center (1) -> Insulation Center (2)
     % Resistance = Half Brick + Half Insulation
@@ -106,7 +106,7 @@ resistors = [
 currentTime = datetime(2026, 1, 1, 0, 0, 0);
 timeZone = -6; % UTC-6 is Central Time
 % timeZone = -9; % UTC-9 is Anchorage Time
-dt = 300;
+dt = 60;
 t_end = 30 * 24 * 3600;
 time = 0:dt:t_end; 
 
@@ -132,10 +132,11 @@ for i = 1:n
 end
 
 % SIMULATION
-results = zeros(size(time)); 
+energy_inputs = zeros(size(time)); 
+
 T = 20 * ones(1, n); 
 T = T + 273.15; % Convert to Kelvin
-results(1) = T(n-1);
+indoor_temps(1) = T(n-1);
 Temps = zeros(size(time));
 Temps(1) = T(n);
 
@@ -158,7 +159,6 @@ for z = 2:length(time)
     for y = 1:size(windows,1)
         Q_net_sol = Q_net_sol + solar_sim(location, currentTime, timeZone, windows(y,2), windows(y,1));
     end
-    Q_net_sol = 0;
 
 
     for k = 1:n
@@ -179,18 +179,22 @@ for z = 2:length(time)
     
     % Update temperatures
     T = T + dT;
-    results(z) = T(n-1);
+
+    % Calculate energy required to heat/cool
+    energy_inputs(z) =  -1 * nodes(n-1,3) * (dT(n-1)/dt);
+
+    T(n-1) = 293.15;
     
+
     % Increment time
     currentTime = currentTime + seconds(dt);
 end
 
 % PLOT RESULTS
 figure;
-scatter(mod(time, 24*3600)/3600, results-273.15, '.');
+scatter(mod(time, 24*3600)/3600, energy_inputs/1000, '.');
 hold on;
-scatter(mod(time, 24*3600)/3600, Temps-273.15, '.r');
 xlabel('Time (hours)');
-ylabel('Temperature (°C)');
-title('Indoor Temperature Response');
+ylabel('Load (kW)');
+title('Active Heating/Cooling Requirements');
 grid on;
