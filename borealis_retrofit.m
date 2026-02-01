@@ -12,6 +12,7 @@ insulation.R = 0.090/0.035;
 insulation.Cp = 840;
 insulation.rho = 12;
 double_pane.U = 2.8;
+triple_pane.U = 1/1.7;
 air.h = 15;
 air.Cp = 1005;
 air.rho = 1.225;
@@ -21,12 +22,14 @@ indoor_concrete.rho = 2000;
 % Solar Absorptivity
 alpha_wall = 0.7; % Standard Brick
 alpha_roof = 0.2; % White Roof
-% SIMULATION LOCATION (Austin TX)
-location.longitude = -97.743; %[deg]
-location.latitude = 30.2672; %[deg]
-location.altitude = 185; % [m]
-location.temperature.low = [5, 8, 11, 15, 19, 23, 24, 25, 22, 16, 10, 7];
-location.temperature.high = [17, 19, 24, 27, 31, 35, 36, 38, 34, 29, 22, 18];
+% Black curtain Short Wave Radiant Fraction(SWRF)
+curtain.SWRF = 0.8;
+% SIMULATION LOCATION (Yellowknife, NT, Canada)
+location.longitude = -114.370; %[deg]
+location.latitude = 62.4536; %[deg]
+location.altitude = 206; % [m]
+location.temperature.low = [-29, -27, -21, -10, 1, 9, 13, 11, 5, -4, -18, -26];
+location.temperature.high = [-21, -18, -10, 1, 11, 18, 21, 18, 11, 1, -11, -19];
 % DEFINE SIMULATION CONDITIONS
 L = 60; W = 24; H = 6.6; % Building dimensions
 V = L*W*H; % Volume of building
@@ -42,12 +45,28 @@ A_EW_Wall = W * H;
 % ... # of windows on face, Width, Height,
 % ... Vertical Projection, Horizontal Projection, louver angle, Horiz Spacing]
 windows = [
-    0.45*A_NS_Wall, 180, 36, 1.723, 2.872, 0.5, 0.5, -25, 1.525; % South Window
-    0.30*A_NS_Wall, 0  , 36, 1.407, 2.345, 0  , 0  , 0  , 1.824; % North Window
-    0.30*A_EW_Wall, 90 , 14, 1.427, 2.378, 0.5, 0.5, -25, 1.751; % East  Window
-    0.30*A_EW_Wall, 270, 14, 1.427, 2.378, 0.5, 0.5, -25, 1.751; % West  Window
+    0.45*A_NS_Wall, 180, 36, 1.723, 2.872, 0, 0, 0, 1.525; % South Window
+    0.30*A_NS_Wall, 0  , 36, 1.407, 2.345, 0, 0, 0  , 1.824; % North Window
+    0.30*A_EW_Wall, 90 , 14, 1.427, 2.378, 0, 0, 0, 1.751; % East  Window
+    0.30*A_EW_Wall, 270, 14, 1.427, 2.378, 0, 0, 0, 1.751; % West  Window
 %   1               2    3   4      5      6    7    8    9
 ];
+
+% Define curtain parameters
+% [SWRF, Surface Area]
+curtains = [
+    curtain.SWRF, windows(1,4)*2.03; % South
+    curtain.SWRF, 0                ; % North
+    curtain.SWRF, windows(3,4)*2.03; % East
+    curtain.SWRF, windows(4,4)*2.03; % West
+];
+
+% Calculate effective SWRF values
+effective_SWRF_vec = curtains(:,1).*curtains(:,2)./(windows(:,4).*windows(:,5));
+% Take weighted average to calculate total effective
+total_curtain_SA = sum(curtains(:,2));
+effective_SWRF = sum(effective_SWRF_vec.*curtains(:,2))/total_curtain_SA
+
 % Calculate OPAQUE Area (Total Wall - Window Area)
 % [Area, Angle]
 opaque_walls = [
@@ -65,8 +84,8 @@ nodes = [
     1, 0  , 1.0, face_brick.Cp*face_brick.rho*A_opaque_total*0.090; % C = Cp * Density * Surface Area * Thickness
     2, 0  , 0  , insulation.Cp*insulation.rho*A_opaque_total*0.090;
     3, 0  , 0  , drywall.Cp*drywall.rho*A_opaque_total*0.0125;
-    4, 0.8, 0  , indoor_concrete.Cp*indoor_concrete.rho*L*W*0.1524;
-    5, 0.2, 0  , air.Cp*V*air.rho; % Indoor Air
+    4, 1-effective_SWRF, 0  , indoor_concrete.Cp*indoor_concrete.rho*L*W*0.1524;
+    5, effective_SWRF, 0  , air.Cp*V*air.rho; % Indoor Air
     6, 0  , 0  , inf % Outdoor air (infinite Capacitance = heat reservoir)
 ];
 n = size(nodes, 1);
@@ -95,7 +114,7 @@ resistors = [
     4, n-1, (R_conc_abs / 2) + R_conv;
     
     % 6. Window (Outside Air to Inside Air)
-    n, n-1, 1 / (double_pane.U * A_window_total);
+    n, n-1, 1 / (triple_pane.U * A_window_total);
 ];
 % CREATE R MATRIX
 R = zeros(n, n);
