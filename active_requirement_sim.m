@@ -113,14 +113,6 @@ resistors = [
     n, n-1, 1 / (double_pane.U * A_window_total);
 ];
 
-% DEFINE TIME PARAMETERS
-currentTime = datetime(2026, 7, 1, 0, 0, 0);
-timeZone = -6; % UTC-6 is Central Time
-% timeZone = -9; % UTC-9 is Anchorage Time
-dt = 60;
-t_end = 5 * 24 * 3600;
-time = 0:dt:t_end; 
-
 % CREATE R MATRIX
 R = zeros(n, n);
 for i = 1:size(resistors,1)
@@ -136,51 +128,69 @@ end
 disp(R)
 
 % CREATE C VECTOR
-C = zeros(1, n);
+C = zeros(n, 1);
 for i = 1:n
     id = nodes(i, 1);
     C(id) = nodes(i, 4);
 end
 
+
+% Time Set Up
+dt = 60; % Time step (seconds).
+t_end = 15 * 24 * 3600;
+time_vec = 0:dt:t_end;
+num_steps = length(time_vec);
+
+% Generate dates for the whole year
+start_date = datetime(2026, 1, 23, 0, 0, 0);
+date_list = start_date + seconds(time_vec);
+months = month(date_list);
+
+% Pre-Calculate Temperatures for the year
+lows = interp1(1:12, location.temperature.low, months, 'linear', 'extrap');
+highs = interp1(1:12, location.temperature.high, months, 'linear', 'extrap');
+amps = (highs - lows) / 2;
+T_outside_vec = lows + amps + amps .* cos(2*pi * (time_vec - 15*3600) / (24*3600)) + 273.15;
+
 % SIMULATION
-energy_inputs = zeros(size(time)); 
+T = 20 * ones(n, 1) + 273.15; % Initial Temp Vector
+energy_inputs = zeros(num_steps, 1);
+timeZone = -6;
 
-T = 20 * ones(1, n); 
-T = T + 273.15; % Convert to Kelvin
-indoor_temps(1) = T(n-1);
-Temps = zeros(size(time));
-Temps(1) = T(n);
+tic; % Start timer
+for z = 1:num_steps
+    % Update Outside Air Temp
+    T(n) = T_outside_vec(z);
+    
+    % Calculate Sun Position
+    [y, m, d] = ymd(date_list(z));
+    [h, mn, s] = hms(date_list(z));
+    timeStruct.year=y; timeStruct.month=m; timeStruct.day=d;
+    timeStruct.hour=h; timeStruct.min=mn; timeStruct.sec=s;
+    timeStruct.UTC=timeZone;
+    
+    sun = sun_position(timeStruct, location);
+    % sun.azimuth_rad = deg2rad(sun.azimuth);
+    % sun.altitude_rad = deg2rad(90 - sun.zenith);
 
-for z = 2:length(time)
-
-    % Update outside temperature:
-    low = interp1(1:12, location.temperature.low, month(currentTime), 'linear', 'extrap');
-    high = interp1(1:12, location.temperature.high, month(currentTime), 'linear', 'extrap');
-    amplitude = (high - low) / 2;
-    Period = 24 * 3600;
-    Time_of_Max = 15 * 3600;
-    outsideTemp = low + amplitude + amplitude * cos(2*pi * (time(z) - Time_of_Max) / Period) + 273.15; % Convert to Kelvin
-    T(n) = outsideTemp;
-    Temps(z) = outsideTemp;
-
-    dT = zeros(1, n);
+    dT = zeros(n, 1);
 
     Q_sol_win = 0;
     % Calculate heat through windows from sun.
     for y = 1:size(windows,1)
-        if y == 1
+        if y == 1 % Temporarily only apply louvers to south windows
             % Effective surface area with louver shading: # of windows * effective of one window
-            A_s_eff = windows(y,3) * louver_sunlit_area(location, currentTime, timeZone, windows(y,2), (3/5)*2.87, 2.87, 0.5, 0.5, 25);
-            Q_sol_win = Q_sol_win + solar_sim(location, currentTime, timeZone, windows(y,2), A_s_eff);
+            A_s_eff = windows(y,3) * louver_sunlit_area(sun, windows(y,2), (3/5)*2.87, 2.87, 0.5, 0.5, 25);
+            Q_sol_win = Q_sol_win + solar_sim(sun, windows(y,2), A_s_eff);
         else 
-            Q_sol_win = Q_sol_win + solar_sim(location, currentTime, timeZone, windows(y,2), windows(y,1));
+            Q_sol_win = Q_sol_win + solar_sim(sun, windows(y,2), windows(y,1));
         end
     end
 
     Q_sol_wall = 0;
     % Calculate heating of exterior surface from sun.
     for y = 1:size(windows,1)
-        Q_sol_wall = Q_sol_wall + solar_sim(location, currentTime, timeZone, opaque_walls(y,2), opaque_walls(y,1));
+        Q_sol_wall = Q_sol_wall + solar_sim(sun, opaque_walls(y,2), opaque_walls(y,1));
     end
 
 
@@ -207,15 +217,12 @@ for z = 2:length(time)
     energy_inputs(z) =  -1 * nodes(n-1,4) * (dT(n-1)/dt);
 
     T(n-1) = 293.15;
-    
-
-    % Increment time
-    currentTime = currentTime + seconds(dt);
 end
 
 % PLOT RESULT
 figure;
-scatter(mod(time, 24*3600)/3600, energy_inputs/1000, '.');
+%scatter(mod(time_vec, 24*3600)/3600, energy_inputs/1000, '.');
+scatter(time_vec/3600, energy_inputs/1000, '.');
 hold on;
 xlabel('Time (hours)');
 ylabel('Load (kW)');

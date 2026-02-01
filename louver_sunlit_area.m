@@ -1,14 +1,8 @@
-function A_SL = louver_sunlit_area(location, currentTime, timeZone, psi, W, H, Pv, Ph, theta)
+function A_SL = louver_sunlit_area(sun, psi, W, H, Pv, Ph, theta)
 
-% location: struct
-%   ex:
-%       location.longitude = -97.743; [deg]
-%       location.latitude = 30.2672; [deg]
-%       location.altitude = 185; % [m]
-
-% currentTime: ex - datetime(2026, 1, 30, 0, 0, 0);
-
-% timeZone: deviance from UTC (ex: -6 for central time)
+% sun: [struct]
+% ---- zenith  [deg]
+% ---- azimuth [deg]
 
 % psi: [deg] Angle of window East of North
 psi = deg2rad(psi);
@@ -24,19 +18,7 @@ theta = deg2rad(theta);
 
 % SIMULATION
 
-dv = datevec(currentTime);
-
-% Create the time struct
-timeStruct.year = dv(1);
-timeStruct.month = dv(2);
-timeStruct.day = dv(3);
-timeStruct.hour = dv(4);
-timeStruct.min = dv(5);
-timeStruct.sec = dv(6);
-timeStruct.UTC = timeZone;
-
-% Get sun position
-sun = sun_position(timeStruct, location);
+% Convert sun data to radians
 sun.azimuth = deg2rad(sun.azimuth);
 sun.altitude = deg2rad(90 - sun.zenith);
 
