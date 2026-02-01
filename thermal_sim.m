@@ -45,7 +45,8 @@ A_s = 2 * (L * H + W * H) + L * W; % Surface area of whole building (neglect flo
 A_NS_Wall = L * H; 
 A_EW_Wall = W * H;
 
-% DEFINE WINDOWS
+% DEFINE WINDOWS AND EXTERIOR WALLS
+
 % [Surface Area(m^2_, Phi Angle(deg east of north)]
 windows = [
     0.45*A_NS_Wall, 180; % South Window
@@ -53,19 +54,29 @@ windows = [
     0.30*A_EW_Wall, 90;  % East  Window
     0.30*A_EW_Wall, 270; % West  Window
 ];
+
+% Calculate OPAQUE Area (Total Wall - Window Area)
+% [Area, Angle]
+opaque_walls = [
+    (A_NS_Wall - windows(1,1)), 180; % South Wall
+    (A_NS_Wall - windows(2,1)), 0;   % North Wall
+    (A_EW_Wall - windows(3,1)), 90;  % East Wall
+    (A_EW_Wall - windows(4,1)), 270; % West Wall
+];
+
 A_window_total = sum(windows(:,1));
 
 A_wall_total = A_s - A_window_total;
 
 % DEFINE NODES (Capacitors)
-% [ID, Solar Absorption %, Capacitance
+% [ID, Interior Solar Absorption %, Exterior Solar Absorption %, Capacitance
 nodes = [
-    1, 0, face_brick.Cp*face_brick.rho*A_wall_total*0.090; % C = Cp * Density * Surface Area * Thickness
-    2, 0, insulation.Cp*insulation.rho*A_wall_total*0.090;
-    3, 0, drywall.Cp*drywall.rho*A_wall_total*0.0125;
-    4, 0.8, indoor_concrete.Cp*indoor_concrete.rho*L*W*0.1524;
-    5, 0.2, air.Cp*V*air.rho; % Indoor Air
-    6, 0, inf % Outdoor air (infinite Capacitance = heat reservoir)
+    1, 0  , 0.7, face_brick.Cp*face_brick.rho*A_wall_total*0.090; % C = Cp * Density * Surface Area * Thickness
+    2, 0  , 0  , insulation.Cp*insulation.rho*A_wall_total*0.090;
+    3, 0  , 0  , drywall.Cp*drywall.rho*A_wall_total*0.0125;
+    4, 0.8, 0  , indoor_concrete.Cp*indoor_concrete.rho*L*W*0.1524;
+    5, 0.2, 0  , air.Cp*V*air.rho; % Indoor Air
+    6, 0  , 0  , inf % Outdoor air (infinite Capacitance = heat reservoir)
 ];
 n = size(nodes, 1);
 
@@ -128,7 +139,7 @@ disp(R)
 C = zeros(1, n);
 for i = 1:n
     id = nodes(i, 1);
-    C(id) = nodes(i, 3);
+    C(id) = nodes(i, 4);
 end
 
 % SIMULATION
@@ -154,10 +165,16 @@ for z = 2:length(time)
 
     dT = zeros(1, n);
 
-    Q_net_sol = 0;
-    
+    Q_sol_win = 0;
+    % Calculate heat through windows from sun.
     for y = 1:size(windows,1)
-        Q_net_sol = Q_net_sol + solar_sim(location, currentTime, timeZone, windows(y,2), windows(y,1));
+        Q_sol_win = Q_sol_win + solar_sim(location, currentTime, timeZone, windows(y,2), windows(y,1));
+    end
+
+    Q_sol_wall = 0;
+    % Calculate heating of exterior surface from sun.
+    for y = 1:size(windows,1)
+        Q_sol_wall = Q_sol_wall + solar_sim(location, currentTime, timeZone, opaque_walls(y,2), opaque_walls(y,1));
     end
 
 
@@ -173,7 +190,7 @@ for z = 2:length(time)
                 end
             end
             % Update Temp Change: (Net Heat Flow * dt) / Capacitance
-            dT(k) = (dT(k) + Q_net_sol*nodes(k, 2)) * dt / C(k);
+            dT(k) = (dT(k) + Q_sol_win*nodes(k, 2) + Q_sol_wall*nodes(k,3)) * dt / C(k);
         end
     end
     
@@ -181,7 +198,7 @@ for z = 2:length(time)
     T = T + dT;
 
     % Calculate energy required to heat/cool
-    energy_inputs(z) =  -1 * nodes(n-1,3) * (dT(n-1)/dt);
+    energy_inputs(z) =  -1 * nodes(n-1,4) * (dT(n-1)/dt);
 
     T(n-1) = 293.15;
     
