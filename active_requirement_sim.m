@@ -245,24 +245,22 @@ scatter(time_vec/3600, energy_inputs/1000, '.');
 xlabel('Time (hours)'); ylabel('Load (kW)'); title('Annual Active Heating/Cooling');
 grid on;
 
-% --- ENERGY CALCULATION ---
+% TOTAL ENERGY CALCULATION
 
-% 1. Separate Heating (Positive) and Cooling (Negative)
-% Note: In your logic, Positive = Adding Heat (Heating), Negative = Removing Heat (Cooling)
+% Separate Heating (Positive) and Cooling (Negative)
 heating_power = max(0, energy_inputs); % zeros out negative values
 cooling_power = abs(min(0, energy_inputs)); % zeros out positive values & makes cooling positive
 
-% 2. Integrate Power over Time to get Energy (Joules)
-% Energy (Joules) = Power (Watts) * Time (Seconds)
+% Integrate Power over Time to get Energy (Joules)
 total_heating_joules = sum(heating_power) * dt;
 total_cooling_joules = sum(cooling_power) * dt;
 
-% 3. Convert Joules to kWh
+% Convert Joules to kWh
 % 1 kWh = 3,600,000 Joules
 total_heating_kWh = total_heating_joules / 3.6e6;
 total_cooling_kWh = total_cooling_joules / 3.6e6;
 
-% 4. Display Annual Totals
+% Display Annual Totals
 fprintf('\n--------------------------------------\n');
 fprintf('ANNUAL ENERGY SIMULATION RESULTS\n');
 fprintf('--------------------------------------\n');
@@ -270,10 +268,7 @@ fprintf('Total Heating Load: %.2f kWh\n', total_heating_kWh);
 fprintf('Total Cooling Load: %.2f kWh\n', total_cooling_kWh);
 fprintf('Total System Load:  %.2f kWh\n', total_heating_kWh + total_cooling_kWh);
 
-% --- MONTHLY BREAKDOWN PLOT ---
-% It is often more useful to see this per month than as one big number
-
-% Calculate the month for every time step
+% MONTHLY BREAKDOWN PLOT
 step_months = month(start_date + seconds(time_vec(1:end-1))); % Exclude last point to match size
 
 monthly_heating = zeros(1, 12);
