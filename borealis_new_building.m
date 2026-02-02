@@ -30,7 +30,7 @@ tau_trombe_glass = 0.75; % Transmissivity of triple pane glass
 
 % GLOBAL SOUTH OVERHANG
 % This applies to both the Windows and the Trombe Wall on the South Face
-south_overhang_depth = 4.0; % [m]
+south_overhang_depth = 5.4; % [m]
 
 % TROMBE WALL CONFIGURATION (PERCENTAGE)
 % Specify the % of available opaque wall to convert to Trombe Wall (0.0 to 1.0)
@@ -64,7 +64,7 @@ A_EW_Wall = W * H;
 % ... Vertical Projection, Horizontal Projection, louver angle, Horiz Spacing]
 windows = [
     % SOUTH WINDOW: Uses south_overhang_depth
-    0.45*A_NS_Wall, 180, 36, 1.723, 2.872, 0, south_overhang_depth, 0, 1.525; % South
+    0.45*A_NS_Wall, 180, 36, 1.723, 2.872, south_overhang_depth, south_overhang_depth, 0, 1.525; % South
     0.30*A_NS_Wall, 0  , 36, 1.407, 2.345, 0, 0, 0, 1.824; % North
     0.30*A_EW_Wall, 90 , 14, 1.427, 2.378, 0, 0, 0, 1.751; % East
     0.30*A_EW_Wall, 270, 14, 1.427, 2.378, 0, 0, 0, 1.751; % West
@@ -375,7 +375,6 @@ fprintf('Total System Load:  %.2f kWh\n', total_heating_kWh + total_cooling_kWh)
 % PLOT RESULT
 figure;
 % Plot a zoomed-in week in Summer (approx 4000 hours in)
-subplot(2,1,1);
 zoom_start = 4000 * (3600/dt); 
 zoom_end = zoom_start + 168*(3600/dt);
 plot(time_vec(zoom_start:zoom_end)/3600, energy_inputs(zoom_start:zoom_end)/1000, 'LineWidth', 1.5);
@@ -393,13 +392,13 @@ for m = 1:12
     monthly_heating(m) = sum(heating_power(idx)) * dt / 3.6e6;
     monthly_cooling(m) = sum(cooling_power(idx)) * dt / 3.6e6;
 end
-subplot(2,1,2);
+figure;
 b = bar(1:12, [monthly_heating; monthly_cooling]', 'stacked');
 b(1).FaceColor = [0.8500 0.3250 0.0980]; % Red for Heating
 b(2).FaceColor = [0.0000 0.4470 0.7410]; % Blue for Cooling
 xlabel('Month');
 ylabel('Energy (kWh)');
-title('Monthly Heating vs. Cooling Load');
+title('Monthly Heating vs. Cooling Load at New Borealis Building');
 legend('Heating', 'Cooling');
 xticks(1:12);
 xticklabels({'Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'});

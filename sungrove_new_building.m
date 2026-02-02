@@ -1,6 +1,8 @@
 clc;
 clear;
 close all;
+addpath('./tools/');
+
 % DEFINE MATERIAL PARAMETERS
 face_brick.R = 0.090/1.31; % thickness/k
 face_brick.Cp = 921;
@@ -42,11 +44,11 @@ A_EW_Wall = W * H;
 % ... # of windows on face, Width, Height,
 % ... Vertical Projection, Horizontal Projection, louver angle, Horiz Spacing]
 windows = [
-    0.45*A_NS_Wall, 180, 36, 1.723, 2.872, 0.5, 0.5, 25, 1.525; % South Window
-    0.30*A_NS_Wall, 0  , 36, 1.407, 2.345, 0  , 0  , 0 , 1.824; % North Window
+    0.45*A_NS_Wall, 180, 36, 1.723, 2.872, 0  , 0  , 0  , 1.525; % South Window
+    0.30*A_NS_Wall, 0  , 36, 1.407, 2.345, 0  , 0  , 0  , 1.824; % North Window
     0.30*A_EW_Wall, 90 , 14, 1.427, 2.378, 0.5, 0.5, -25, 1.751; % East  Window
     0.30*A_EW_Wall, 270, 14, 1.427, 2.378, 0.5, 0.5, -25, 1.751; % West  Window
-%   1               2    3   4      5      6    7    8    9
+%   1               2    3   4      5      6    7    8    9 
 ];
 % Calculate OPAQUE Area (Total Wall - Window Area)
 % [Area, Angle]
@@ -135,15 +137,38 @@ lows = interp1(month_centers_wrap, monthly_lows_wrap, day_of_year_vec, 'pchip');
 highs = interp1(month_centers_wrap, monthly_highs_wrap, day_of_year_vec, 'pchip');
 amps = (highs - lows) / 2;
 T_outside_vec = lows + amps + amps .* cos(2*pi * (time_vec - 15*3600) / (24*3600)) + 273.15;
+% PRE-CALCULATE TREE SHADING S(t)
+% Convert simulation time to "Month" value (0 to 12)
+t_months = (time_vec / t_end) * 12; 
+S_vec = zeros(size(t_months));
+% Apply Piecewise Function for blocked proportion
+% 0 <= t < 6 (Jan to June)
+mask1 = (t_months < 6);
+t1 = t_months(mask1);
+S_vec(mask1) = (0.5 ./ (1 + 4*exp(-4*(t1 - 3)))) + 0.35;
+% 6 <= t < 12 (July to Dec)
+mask2 = (t_months >= 6);
+t2 = t_months(mask2);
+S_vec(mask2) = (-0.5 ./ (1 + 4*exp(-9*(t2 - 10.5)))) + 0.85;
+% PRE-CALCULATE TEMPERATURE DECREASE FROM GREEN WALL
+% Convert simulation time to "Month" value (0 to 12)
+t_months = (time_vec / t_end) * 12; 
+TG_vec = zeros(size(t_months));
+% Apply Piecewise Function for blocked proportion
+% 0 <= t < 6 (Jan to June)
+mask1 = (t_months < 6);
+t1 = t_months(mask1);
+TG_vec(mask1) = (1.5 ./ (1 + 4*exp(-4*(t1 - 3))));
+% 6 <= t < 12 (July to Dec)
+mask2 = (t_months >= 6);
+t2 = t_months(mask2);
+TG_vec(mask2) = (-1.5 ./ (1 + 4*exp(-9*(t2 - 10.5)))) + 1.5;
 % SIMULATION
 T = 20 * ones(n, 1) + 273.15; % Initial Temp Vector
 energy_inputs = zeros(num_steps, 1);
 timeZone = -6;
 tic; % Start timer
 for z = 1:num_steps
-    % Update Outside Air Temp
-    T(n) = T_outside_vec(z);
-    
     % Calculate Sun Position
     [y, m, d] = ymd(date_list(z));
     [h, mn, s] = hms(date_list(z));
@@ -152,48 +177,48 @@ for z = 1:num_steps
     timeStruct.UTC=timeZone;
     
     sun = sun_position(timeStruct, location);
+    % Update Outside Air Temp
+    T(n) = T_outside_vec(z);
+    if 90 - sun.zenith > 0
+        T(n) = T(n) - (3/4) * TG_vec(z); % Subtract temperature decrease from plant wall
+        % 3/4 is to represent that only 3 out of 4 walls have plant wall
+    end
+    
+    % Retrieve Tree Shading Factor for current time
+    % S(t) = Blocked Fraction. We need the Transmission Fraction (1 - S)
+    south_tree_transmission = 1 - S_vec(z);
+    tree_transmission = ones(size(windows,1),1);
+    tree_transmission(1) = south_tree_transmission; % Only apply tree shading to south wall
     
     dT = zeros(n, 1);
     Q_sol_win = 0;
-    Q_wall_shaded_loss = 0; % Track how much energy is blocked by shadows on the wall
-    
-    % Calculate heat through windows from sun AND shadow on walls.
+    % Calculate heat through windows from sun.
     for y = 1:size(windows,1)
-        % Effective surface area with louver shading
+        
+        % Calculate Sunlit Area:
+        % If louver parameters exist (columns 6,7,8), calculate shadow.
+        % If params are 0, A_win_sl_one will equal W*H (full area).
         [A_win_sl_one, A_wall_sl_one] = louver_sunlit_area(sun, windows(y,2), windows(y,4), windows(y,5), windows(y,6), windows(y,7), windows(y,8), windows(y,9));
         
-        % 1. Add Window Solar Gain
-        % Area effective = Sunlit Area * Number of Windows
-        A_win_total_eff = A_win_sl_one * windows(y,3);
-        Q_sol_win = Q_sol_win + solar_sim(sun, windows(y,2), A_win_total_eff);
+        % Effective Area = Sunlit area * Number of windows
+        A_win_effective = A_win_sl_one * windows(y,3);
         
-        % 2. Calculate Shadow Loss on Wall Gap
-        % Total Area of the Gap = H_win * H_spac
-        Area_Gap_One = windows(y,5) * windows(y,9);
-        % Shaded Area = Total Gap - Sunlit Gap (from helper function)
-        Area_Gap_Shaded_One = Area_Gap_One - A_wall_sl_one;
+        % Calculate Incident Solar on that effective area
+        incident_solar = solar_sim(sun, windows(y,2), A_win_effective);
         
-        % If there is shadow, subtract that energy from the wall calculation
-        if Area_Gap_Shaded_One > 0
-            % Total Shaded Gap Area = Shaded One * Count
-            Q_blocked = solar_sim(sun, windows(y,2), Area_Gap_Shaded_One * windows(y,3));
-            Q_wall_shaded_loss = Q_wall_shaded_loss + Q_blocked;
-        end
+        % Apply Tree Shading Multiplier (Only affects South wall based on line 189)
+        Q_sol_win = Q_sol_win + (incident_solar * tree_transmission(y));
     end
     
-    % Calculate heating of exterior surface from sun.
     Q_absorbed_shell = 0;
-    
-    % 1. Vertical Walls (70% Absorption)
+    % Calculate heating of exterior surface from sun.
+    % 1. Vertical Walls (Apply Tree Shading)
     for y = 1:size(opaque_walls,1)
         Q_incident = solar_sim(sun, opaque_walls(y,2), opaque_walls(y,1));
-        Q_absorbed_shell = Q_absorbed_shell + (Q_incident * alpha_wall);
+        Q_absorbed_shell = Q_absorbed_shell + (Q_incident * alpha_wall * tree_transmission(y));
     end
     
-    % Subtract the energy blocked by shadows (account for absorptivity)
-    Q_absorbed_shell = Q_absorbed_shell - (Q_wall_shaded_loss * alpha_wall);
-    
-    % 2. Horizontal Roof (20% Absorption)
+    % 2. Horizontal Roof (Assume unshaded by trees)
     if (90 - sun.zenith) > 0
         zenith_rad = deg2rad(sun.zenith);
         AM = 1/cos(zenith_rad);
@@ -203,6 +228,7 @@ for z = 1:num_steps
         Q_incident_roof = 0;
     end
     Q_absorbed_shell = Q_absorbed_shell + (Q_incident_roof * alpha_roof);
+    
     for k = 1:n
         
         % Calculate NET flow using neighbor nodes
@@ -215,12 +241,7 @@ for z = 1:num_steps
                 end
             end
             % Update Temp Change: (Net Heat Flow * dt) / Capacitance
-            % Apply Wall/Roof Solar to Node 1 (Brick) and Window Solar to Nodes 4/5
-            if k == 1
-                dT(k) = (dT(k) + Q_absorbed_shell) * dt / C(k);
-            else
-                dT(k) = (dT(k) + Q_sol_win*nodes(k, 2)) * dt / C(k);
-            end
+            dT(k) = (dT(k) + Q_sol_win*nodes(k, 2) + Q_absorbed_shell*nodes(k,3)) * dt / C(k);
         end
     end
     
@@ -275,7 +296,7 @@ b(1).FaceColor = [0.8500 0.3250 0.0980]; % Red for Heating
 b(2).FaceColor = [0.0000 0.4470 0.7410]; % Blue for Cooling
 xlabel('Month');
 ylabel('Energy (kWh)');
-title('Monthly Heating vs. Cooling Load at Retrofitted Sungrove Building');
+title('Monthly Heating vs. Cooling Load at New Sungrove Building');
 legend('Heating', 'Cooling');
 xticks(1:12);
 xticklabels({'Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'});
